@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Laser Guitar</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #08090c; }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+
+    .panel {
+      position: fixed; z-index: 10;
+      font: 12px/1.5 -apple-system, "Helvetica Neue", sans-serif;
+      color: #cfd3da;
+      background: rgba(14, 16, 20, 0.82);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 10px 12px;
+      backdrop-filter: blur(6px);
+      user-select: none;
+    }
+    #hud { top: 12px; left: 12px; }
+    #hud h1 { margin: 0 0 2px; font-size: 13px; font-weight: 600; color: #fff; }
+    #hud .hint { color: #8b919c; }
+
+    #loading {
+      position: fixed; inset: 0; z-index: 20;
+      display: flex; align-items: center; justify-content: center;
+      color: #8b919c; font: 13px -apple-system, sans-serif;
+      background: #08090c; transition: opacity 0.4s;
+    }
+    #loading.done { opacity: 0; pointer-events: none; }
+    /* Assets loaded: dim to a translucent "click to begin" gate. The click it
+       collects is the user gesture that unlocks audio (autoplay policy). */
+    #loading.ready {
+      background: rgba(8, 9, 12, 0.55);
+      color: #fff; font-size: 15px;
+      cursor: pointer;
+      transition: background 0.4s, opacity 0.4s;
+    }
+  </style>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="hud" class="panel">
+    <h1>Laser Guitar</h1>
+    <div class="hint">Click or drag across a beam to pluck &middot; drag empty space to orbit</div>
+  </div>
+
+  <div id="loading">Loading model + environment&hellip;</div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
