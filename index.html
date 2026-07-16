@@ -5,14 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Laser Guitar</title>
   <style>
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #08090c; }
-    #app { position: fixed; inset: 0; }
+    html, body { margin: 0; background: #08090c; }
+    body { font: 13px -apple-system, "Helvetica Neue", sans-serif; }
     canvas { display: block; }
 
-    /* Bare floating text — no box, so the corner stays clean. The soft text
-       shadow keeps it readable over the ambient background. */
+    /* Shared dark rounded-corner panel look, used by the toggle button, the
+       hover card, and the reference-section cards below the viewer. */
+    .panel {
+      background: rgba(12, 13, 17, 0.82);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      color: #e7e9ee;
+    }
+
+    /* Viewer fills exactly one screen; the page scrolls past it to the
+       reference section. Overlays are absolute within it (not fixed to the
+       viewport) so they scroll away with the viewer instead of lingering. */
+    #viewer { position: relative; height: 100vh; overflow: hidden; }
+    #app { position: absolute; inset: 0; }
+
+    #overlay-topleft {
+      position: absolute; z-index: 10; top: 14px; left: 16px;
+      display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
+    }
     #hud {
-      position: fixed; z-index: 10; top: 14px; left: 16px;
       font: 12px/1.5 -apple-system, "Helvetica Neue", sans-serif;
       color: #cfd3da;
       text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
@@ -21,10 +37,63 @@
     #hud h1 { margin: 0 0 2px; font-size: 13px; font-weight: 600; color: #fff; }
     #hud .hint { color: #8b919c; }
 
-    #loading {
-      position: fixed; inset: 0; z-index: 20;
+    #explode-toggle {
+      font: 13px -apple-system, sans-serif;
+      padding: 9px 16px;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    #explode-toggle:hover { background: rgba(24, 26, 32, 0.9); }
+    #explode-toggle.active {
+      border-color: rgba(255, 90, 90, 0.55);
+      color: #fff;
+    }
+    #explode-hint {
+      font-size: 11.5px; color: #8b919c; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+      opacity: 0; transition: opacity 0.2s; user-select: none;
+    }
+    #explode-hint.visible { opacity: 1; }
+
+    /* Hover info card — docked to a fixed position (not cursor-following),
+       steadier for image content and immune to viewport-edge clipping. */
+    #hover-card {
+      position: absolute; z-index: 15; top: 50%; right: 24px;
+      transform: translateY(-50%) translateX(12px);
+      width: 300px; max-width: calc(100vw - 48px);
+      padding: 16px 18px;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+    #hover-card.visible { opacity: 1; pointer-events: auto; transform: translateY(-50%) translateX(0); }
+    #hover-card h3 { margin: 0 0 6px; font-size: 15px; color: #fff; }
+    #hover-card p { margin: 0 0 12px; font-size: 12.5px; line-height: 1.5; color: #c3c7cf; }
+    #hover-card .media-primary img,
+    #hover-card .media-primary video {
+      width: 100%; border-radius: 8px; display: block; cursor: zoom-in; background: #111;
+    }
+    #hover-card .media-thumbs { display: flex; gap: 6px; margin-top: 8px; }
+    #hover-card .media-thumbs img,
+    #hover-card .media-thumbs video {
+      width: 52px; height: 38px; object-fit: cover; border-radius: 6px;
+      cursor: pointer; opacity: 0.65; border: 1px solid transparent; transition: opacity 0.15s;
+    }
+    #hover-card .media-thumbs .thumb.active { opacity: 1; border-color: rgba(255, 255, 255, 0.4); }
+
+    /* Lightbox — shared by the hover card and the reference-section cards. */
+    #lightbox {
+      position: fixed; inset: 0; z-index: 50;
+      background: rgba(4, 5, 7, 0.9);
       display: flex; align-items: center; justify-content: center;
-      color: #8b919c; font: 13px -apple-system, sans-serif;
+      opacity: 0; pointer-events: none; transition: opacity 0.2s;
+    }
+    #lightbox.visible { opacity: 1; pointer-events: auto; }
+    #lightbox img, #lightbox video { max-width: 90vw; max-height: 85vh; border-radius: 10px; }
+
+    #loading {
+      position: absolute; inset: 0; z-index: 20;
+      display: flex; align-items: center; justify-content: center;
+      color: #8b919c; font-size: 13px;
       background: #08090c; transition: opacity 0.4s;
     }
     #loading.done { opacity: 0; pointer-events: none; }
@@ -36,6 +105,28 @@
       cursor: pointer;
       transition: background 0.4s, opacity 0.4s;
     }
+
+    /* Component reference section — static fallback/summary below the
+       viewer, same dark-panel language throughout. */
+    #reference { padding: 64px 24px 96px; color: #e7e9ee; }
+    #reference h2 { text-align: center; font-size: 22px; margin: 0 0 8px; color: #fff; }
+    #reference .subtitle { text-align: center; color: #8b919c; font-size: 13px; margin: 0 0 40px; }
+    .card-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 20px; max-width: 1200px; margin: 0 auto;
+    }
+    .ref-card { overflow: hidden; }
+    .ref-card .ref-media {
+      width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; background: #111;
+      cursor: zoom-in;
+    }
+    .ref-card .ref-media-placeholder {
+      width: 100%; aspect-ratio: 4 / 3; display: flex; align-items: center; justify-content: center;
+      color: #5a5f68; font-size: 12px; background: linear-gradient(135deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
+    }
+    .ref-card .ref-body { padding: 14px 16px; }
+    .ref-card h3 { margin: 0 0 6px; font-size: 15px; color: #fff; }
+    .ref-card p { margin: 0; font-size: 12.5px; line-height: 1.5; color: #c3c7cf; }
   </style>
 
   <script type="importmap">
@@ -48,17 +139,37 @@
   </script>
 </head>
 <body>
-  <div id="app"></div>
+  <div id="viewer">
+    <div id="app"></div>
 
-  <div id="hud">
-    <h1>Laser Guitar</h1>
-    <div class="hint">
-      Touch a laser to block it and light up the neck &mdash; move off it to play the note.<br />
-      Drag empty space to orbit &middot; shift-drag to pan &middot; scroll to zoom
+    <div id="overlay-topleft">
+      <div id="hud">
+        <h1>Laser Guitar</h1>
+        <div class="hint">
+          Touch a laser to block it and light up the neck &mdash; move off it to play the note.<br />
+          Drag empty space to orbit &middot; shift-drag to pan &middot; scroll to zoom
+        </div>
+      </div>
+      <button id="explode-toggle" class="panel" type="button">Exploded View</button>
+      <div id="explode-hint">Hover a component for details</div>
     </div>
+
+    <div id="hover-card" class="panel">
+      <h3 id="hover-card-title"></h3>
+      <p id="hover-card-description"></p>
+      <div id="hover-card-media"></div>
+    </div>
+
+    <div id="loading">Loading model + environment&hellip;</div>
   </div>
 
-  <div id="loading">Loading model + environment&hellip;</div>
+  <section id="reference">
+    <h2>Component Breakdown</h2>
+    <div class="subtitle">A closer look at what's inside &mdash; hover the exploded model above, or browse the summary here.</div>
+    <div class="card-grid" id="reference-grid"></div>
+  </section>
+
+  <div id="lightbox"></div>
 
   <script type="module" src="./main.js"></script>
 </body>

@@ -37,9 +37,19 @@ const CONFIG = {
   LED_IDLE_INTENSITY: 0.2,
   LED_ACTIVE_INTENSITY: 3.0,
   LED_EMISSIVE_COLOR: new THREE.Color(1.0, 0.9, 0.7), // warm white, all strings
+  LED_BASE_COLOR: new THREE.Color(0x0a0a0a), // strip PCB base, overrides the exported cream color
 
   // Re-trigger guard so dragging across a beam doesn't machine-gun it.
   RETRIGGER_COOLDOWN_MS: 250,
+
+  // Exploded view.
+  EXPLODE_STAGGER_MS: 80,      // delay between each component group's animation start
+  EXPLODE_DURATION_MS: 1000,   // per-component explode/reassemble duration
+  WIRE_HIDE_MS: 180,           // wire/beam fade-out on explode — quick, snappy
+  WIRE_REVEAL_MS: 450,         // wire fade-in on reassembly — gentler, so the
+                               // "everything is back" moment doesn't snap in abruptly
+  BEAM_REVEAL_MS: 150,         // beam fade-in on reassembly — shorter + eased (below)
+                               // so it reads as part of the landing, not a slow afterthought
 
   // Bloom — threshold 1.0 so only genuinely HDR pixels bloom (beams at ~×8,
   // LED pulses at ×3). At 0.8 the idle LED strip and the acrylic's specular
@@ -78,6 +88,41 @@ const CONFIG = {
   BG_BLURRINESS: 0.6,
   BG_INTENSITY: 0.03,
   BG_TINT: new THREE.Color(0.4, 0.55, 1.0),
+};
+
+// Exploded view — per-component offsets, tunable independently. Values are
+// added to each component's original position (not absolute), so orientation
+// depends on the model's local axes; nudge these once you see the first pass.
+// z is negative here because the console-logged "front detected" axis for
+// this model is -z (see the beam camera-facing code below) — components
+// should pop out toward the front face, not recede behind the body.
+const EXPLODE_OFFSETS = {
+  led_strip: new THREE.Vector3(0, 0.5, -0.4),
+  perfboard: new THREE.Vector3(0, 0, -0.8),
+  mangopi_board: new THREE.Vector3(0.5, 0, -1),
+  dac_board: new THREE.Vector3(0.3, 0, -1.2),
+  rotary_encoder: new THREE.Vector3(0, 0.5, -1),
+  speaker: new THREE.Vector3(0, 0.5, -0.6),
+  laser_diodes: new THREE.Vector3(0, -0.3, -1),
+  ldrs: new THREE.Vector3(0, 0.2, -1),
+};
+
+// Exploded-view hover card content. `media` is an ordered list of 0..N items;
+// the first is shown large/primary, the rest as clickable thumbnails. Left as
+// placeholders — real copy + asset paths (see assets/, assets/process/) come
+// in once confirmed.
+const COMPONENT_INFO = {
+  led_strip: { title: 'LED Strip', description: 'PLACEHOLDER', media: [] },
+  perfboard: { title: 'Perfboard', description: 'PLACEHOLDER', media: [] },
+  mangopi_board: { title: 'MangoPi MQ-Pro', description: 'PLACEHOLDER', media: [] },
+  dac_board: { title: 'MAX98357A DAC', description: 'PLACEHOLDER', media: [] },
+  rotary_encoder: { title: 'Rotary Encoder', description: 'PLACEHOLDER', media: [] },
+  speaker: { title: 'Speaker', description: 'PLACEHOLDER', media: [] },
+  laser_diodes: { title: 'Laser Diodes', description: 'PLACEHOLDER', media: [] },
+  ldrs: { title: 'LDR Sensors', description: 'PLACEHOLDER', media: [] },
+  // Body is hoverable in the exploded view (it's the one thing that never
+  // moves) but isn't part of EXPLODE_GROUP_KEYS below, since it has no offset.
+  body: { title: 'Guitar Body', description: 'PLACEHOLDER', media: [] },
 };
 
 // Start the audio pipeline (worklet fetch + compile, context + graph setup)
@@ -243,6 +288,10 @@ function fixMaterials() {
       console.log(`[laser-guitar] transmissive "${mat.name}": thickness=${mat.thickness.toFixed(3)} ior=${mat.ior} attenuationDistance=${mat.attenuationDistance}`);
     }
 
+    if (mat.name === 'LED-BASE') {
+      mat.color.copy(CONFIG.LED_BASE_COLOR);
+    }
+
     // Clamp any emissive that loaded hot, so there's no flash on first frame.
     if (mat.emissiveIntensity > 1) {
       flag(`"${mat.name}" loaded with emissiveIntensity=${mat.emissiveIntensity}; clamped to idle.`);
@@ -303,6 +352,101 @@ for (const leds of ledsByString) {
     led.mesh.material = mat;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Exploded view — component grouping
+// ---------------------------------------------------------------------------
+// Node names in this export are mostly anonymous Blender leftovers (Cube.041,
+// Plane.012, ...) — only the diode/LDR/LED nodes above kept descriptive names.
+// Materials, however, kept full names (MANGO-PI-BASE, ROTARY-ENCODER-BASE,
+// ...), so components are resolved primarily by material, with a few explicit
+// node-name overrides where a material is shared across two different
+// physical parts (confirmed against the Blender file by hand).
+// NOTE: three.js's GLTFLoader sanitizes node names for animation-binding
+// safety, which strips dots — "Cube.007" in the .glb loads as "Cube007" here.
+// These sets use the *runtime* (dot-stripped) names, not the Blender/.glb ones.
+const DAC_NODE_OVERRIDE = new Set(['Cylinder007', 'Cube006', 'Cube007', 'Cube008', 'Cube009']);
+const MANGOPI_NODE_OVERRIDE = new Set(['Cube', 'Cube001', 'Cube002']); // GPIO header pins + stray parts
+
+// Blender authored one wire color inconsistently as "WIRE_INSULATION-GREEN"
+// (underscore) instead of "WIRE-INSULATION-*" (hyphen) like every other color.
+const isWireMaterial = (name) => name === 'JUMPER-WIRE-BLACK' || /^WIRE[-_]INSULATION/.test(name);
+
+const MATERIAL_TO_GROUP = {
+  'LASER-GOLD': 'laser_diodes', 'SOLDER-JOINTS': 'laser_diodes',
+  'LASER-HOLES': 'laser_diodes', 'LASER-PCB': 'laser_diodes',
+  'LED-BASE': 'led_strip', 'LED-LIGHTS': 'led_strip', 'COPPER': 'led_strip',
+  'MAX-AMP-BASE': 'dac_board', 'TERMINAL-BASE-CONNECTOR': 'dac_board',
+  'MANGO-PI-BASE': 'mangopi_board', 'DISSIPATORS': 'mangopi_board', 'CPU': 'mangopi_board',
+  'WIFI/BT': 'mangopi_board', 'microSD': 'mangopi_board', 'USB-C': 'mangopi_board',
+  'HDMI': 'mangopi_board', 'FPC': 'mangopi_board',
+};
+const MATERIAL_PREFIX_TO_GROUP = [
+  ['ROTARY-ENCODER', 'rotary_encoder'],
+  ['ELECTROCOOKIE', 'perfboard'],
+  ['PERFBOARD', 'perfboard'],
+  ['SPEAKER', 'speaker'],
+];
+
+// Fixed list, not derived from COMPONENT_INFO — 'body' lives in COMPONENT_INFO
+// too (hoverable while exploded) but never explodes, so it's excluded here.
+const EXPLODE_GROUP_KEYS = [
+  'led_strip', 'perfboard', 'mangopi_board', 'dac_board',
+  'rotary_encoder', 'speaker', 'laser_diodes', 'ldrs',
+];
+const componentGroups = Object.fromEntries(EXPLODE_GROUP_KEYS.map((k) => [k, []]));
+const wireMeshes = [];
+const meshToGroup = new Map();
+let bodyMesh = null;
+
+model.traverse((obj) => {
+  if (!obj.isMesh) return;
+  if (obj.name === 'GUITAR-BASE') { bodyMesh = obj; return; }
+
+  let group = null;
+  if (DAC_NODE_OVERRIDE.has(obj.name)) group = 'dac_board';
+  else if (MANGOPI_NODE_OVERRIDE.has(obj.name)) group = 'mangopi_board';
+  else if (/^LDR_string\d+$/.test(obj.name)) group = 'ldrs';
+  else if (/^laser_diode_string\d+$/.test(obj.name)) group = 'laser_diodes';
+  else {
+    const matName = obj.material?.name ?? '';
+    if (isWireMaterial(matName)) { wireMeshes.push(obj); return; }
+    group = MATERIAL_TO_GROUP[matName]
+      ?? MATERIAL_PREFIX_TO_GROUP.find(([prefix]) => matName.startsWith(prefix))?.[1]
+      ?? null;
+  }
+
+  if (!group) {
+    flag(`"${obj.name}" (material "${obj.material?.name}") didn't match any explode group or wire material — leaving it untouched.`);
+    return;
+  }
+  // A node-name override can win a mesh whose *material* is a wire material
+  // (e.g. Cube007/DAC, Cube/mangopi_board both authored with JUMPER-WIRE-BLACK).
+  // That material is shared with real wire meshes, so cloning it here stops
+  // the wire fade-out from also blanking this component to invisible.
+  if (obj.material && isWireMaterial(obj.material.name)) obj.material = obj.material.clone();
+  componentGroups[group].push(obj);
+  meshToGroup.set(obj, group);
+});
+
+if (!bodyMesh) flag('GUITAR-BASE mesh not found — body hover card will be skipped.');
+else meshToGroup.set(bodyMesh, 'body'); // hoverable while exploded, but never in componentGroups/explodeMeshes
+for (const key of EXPLODE_GROUP_KEYS) {
+  if (componentGroups[key].length === 0) flag(`Explode group "${key}" has no meshes.`);
+}
+
+// Snapshot taken once here, before any animation runs — this (not a reversed
+// tween) is the source of truth reassembly always returns to.
+const explodeMeshes = EXPLODE_GROUP_KEYS.flatMap((k) => componentGroups[k]);
+const originalTransforms = new Map(
+  explodeMeshes.map((mesh) => [mesh, { position: mesh.position.clone(), quaternion: mesh.quaternion.clone() }]),
+);
+// Body is hoverable but not in explodeMeshes (it doesn't move) — a separate
+// raycast target list covers both.
+const hoverMeshes = bodyMesh ? [...explodeMeshes, bodyMesh] : explodeMeshes;
+
+const wireMaterials = new Set(wireMeshes.map((m) => m.material).filter(Boolean));
+for (const mat of wireMaterials) mat.transparent = true;
 
 // ---------------------------------------------------------------------------
 // Laser beams (Section 2) — built here, not in Blender
@@ -422,6 +566,66 @@ for (let i = 0; i < NUM_STRINGS; i++) {
 // entry.beam.visible); the UI toggle panel was removed as unneeded.
 
 // ---------------------------------------------------------------------------
+// Exploded view — animation + toggle
+// ---------------------------------------------------------------------------
+function easeOutCubic(t) { return 1 - (1 - t) ** 3; }
+
+let isExploded = false;
+const meshAnimState = new Map(); // Object3D -> {fromPos, toPos, startTime, duration}
+let wireFade = null;             // {visible, startTime, duration} | null
+let beamFade = null;             // {startTime, duration} | null — fade-IN only; hide stays instant
+let beamRestoreAt = -Infinity;   // timestamp beams become visible again after reassembly
+
+// Toggle entry point. Always reads each mesh's *current* live position as the
+// tween start, so re-toggling mid-animation is smooth rather than snapping —
+// the only fixed reference point is originalTransforms, used as the tween end
+// on reassembly and as the base offset is added to on explode.
+function setExploded(target) {
+  if (target === isExploded) return;
+  isExploded = target;
+  const now = performance.now();
+
+  EXPLODE_GROUP_KEYS.forEach((key, i) => {
+    const offset = EXPLODE_OFFSETS[key] ?? new THREE.Vector3();
+    const startTime = now + i * CONFIG.EXPLODE_STAGGER_MS;
+    for (const mesh of componentGroups[key]) {
+      const original = originalTransforms.get(mesh);
+      const toPos = target ? original.position.clone().add(offset) : original.position.clone();
+      meshAnimState.set(mesh, { fromPos: mesh.position.clone(), toPos, startTime, duration: CONFIG.EXPLODE_DURATION_MS });
+    }
+  });
+
+  const reassembleTotalMs = (EXPLODE_GROUP_KEYS.length - 1) * CONFIG.EXPLODE_STAGGER_MS + CONFIG.EXPLODE_DURATION_MS;
+
+  if (target) {
+    // Laser beams no longer make physical sense once diode/LDR pairs
+    // separate; hide immediately, alongside the wires fading out.
+    wireFade = { visible: false, startTime: now, duration: CONFIG.WIRE_HIDE_MS };
+    beamFade = null;
+    for (const entry of beams) {
+      if (!entry) continue;
+      entry.beam.visible = false;
+      entry.spark.visible = false;
+    }
+  } else {
+    // Prime wires/beams invisible-but-primed now; their fade-in only starts
+    // once every component has finished flying back, so nothing reappears
+    // while parts are still mid-flight — the "it's all back together" moment
+    // reads as one deliberate reveal instead of a snap.
+    for (const mesh of wireMeshes) mesh.visible = true;
+    for (const mat of wireMaterials) mat.opacity = 0;
+    beamMaterial.opacity = 0;
+    wireFade = { visible: true, startTime: now + reassembleTotalMs, duration: CONFIG.WIRE_REVEAL_MS };
+    beamFade = { startTime: now + reassembleTotalMs, duration: CONFIG.BEAM_REVEAL_MS };
+    beamRestoreAt = now + reassembleTotalMs;
+    bodyFade = { from: bodyMesh ? bodyMesh.material.opacity : CONFIG.EXPLODED_BODY_OPACITY, to: 1, startTime: now + reassembleTotalMs, duration: CONFIG.WIRE_REVEAL_MS };
+  }
+
+  updateExplodeToggleUI(target);
+  if (!target) hideHoverCard(); // nothing left to hover once reassembling
+}
+
+// ---------------------------------------------------------------------------
 // Interaction (Section 4) — raycast the hitboxes, pluck on enter or click
 // ---------------------------------------------------------------------------
 const raycaster = new THREE.Raycaster();
@@ -436,9 +640,13 @@ let hoveredString = -1;
 const occluders = [];
 model.traverse((obj) => { if (obj.isMesh) occluders.push(obj); });
 
-function pickString(event) {
+function setPointerFromEvent(event) {
   pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
   pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+}
+
+function pickString(event) {
+  setPointerFromEvent(event);
   raycaster.setFromCamera(pointer, camera);
   // Toggled-off beams don't exist as far as the pointer is concerned.
   const hits = raycaster.intersectObjects(
@@ -489,19 +697,35 @@ function updateHover(hit) {
   }
 }
 
+// Hover-card raycast — only live while exploded, reusing the same
+// raycaster/pointer as the beam pluck path above for consistency.
+function updateExplodeHover(event) {
+  setPointerFromEvent(event);
+  raycaster.setFromCamera(pointer, camera);
+  const hit = raycaster.intersectObjects(hoverMeshes, false)[0];
+  const group = hit ? meshToGroup.get(hit.object) : null;
+  if (group) showHoverCard(group);
+  else hideHoverCard();
+  renderer.domElement.style.cursor = group ? 'pointer' : '';
+}
+
 renderer.domElement.addEventListener('pointermove', (event) => {
+  if (isExploded) { updateExplodeHover(event); return; }
   updateHover(pickString(event));
 });
 renderer.domElement.addEventListener('pointerdown', (event) => {
   audioInit(); // AudioContext must start inside a user gesture
+  if (isExploded) return; // plucking is disabled while parts are separated
   updateHover(pickString(event)); // touch: finger down breaks the beam
 });
 renderer.domElement.addEventListener('pointerup', (event) => {
+  if (isExploded) return;
   // Touch has no hover: lifting the finger is leaving the beam. A mouse
   // button release doesn't unblock anything — the cursor is still in the beam.
   if (event.pointerType !== 'mouse') updateHover(null);
 });
 renderer.domElement.addEventListener('pointerleave', () => {
+  if (isExploded) { hideHoverCard(); renderer.domElement.style.cursor = ''; return; }
   updateHover(null); // cursor left the canvas entirely
 });
 
@@ -548,6 +772,33 @@ function animate() {
   // (Beam break/restore is handled event-side: a blocked beam is scaled down
   // to its break point in setBreakPoint, restored in onStringReleased.)
 
+  // Exploded view: staggered position tween per component (holds at its
+  // "from" position until its own start time, via the clamp below), plus the
+  // wire/body opacity fades and the delayed beam restore on reassembly.
+  for (const [mesh, anim] of meshAnimState) {
+    const t = THREE.MathUtils.clamp((now - anim.startTime) / anim.duration, 0, 1);
+    mesh.position.lerpVectors(anim.fromPos, anim.toPos, easeOutCubic(t));
+    if (t >= 1) meshAnimState.delete(mesh);
+  }
+  if (wireFade && now >= wireFade.startTime) {
+    const t = THREE.MathUtils.clamp((now - wireFade.startTime) / wireFade.duration, 0, 1);
+    const opacity = wireFade.visible ? t : 1 - t;
+    for (const mat of wireMaterials) mat.opacity = opacity;
+    if (t >= 1) {
+      if (!wireFade.visible) for (const mesh of wireMeshes) mesh.visible = false;
+      wireFade = null;
+    }
+  }
+  if (beamFade && now >= beamFade.startTime) {
+    const t = THREE.MathUtils.clamp((now - beamFade.startTime) / beamFade.duration, 0, 1);
+    beamMaterial.opacity = easeOutCubic(t) * CONFIG.BEAM_OPACITY;
+    if (t >= 1) beamFade = null;
+  }
+  if (!isExploded && beamRestoreAt <= now && beamRestoreAt !== -Infinity) {
+    for (const entry of beams) if (entry) entry.beam.visible = true;
+    beamRestoreAt = -Infinity;
+  }
+
   // Traveling LED wave: each wave sweeps the string's *sorted* LED array.
   // LED k starts its pulse k×LED_STEP_MS after the pluck and follows a
   // half-sine envelope from idle up to active and back — so the bright spot
@@ -586,6 +837,126 @@ function animate() {
   composer.render();
 }
 renderer.setAnimationLoop(animate);
+
+// ---------------------------------------------------------------------------
+// Exploded-view UI — toggle button, hover card, lightbox, reference section
+// ---------------------------------------------------------------------------
+const explodeToggleBtn = document.querySelector('#explode-toggle');
+const explodeHint = document.querySelector('#explode-hint');
+const hoverCard = document.querySelector('#hover-card');
+const hoverCardTitle = document.querySelector('#hover-card-title');
+const hoverCardDescription = document.querySelector('#hover-card-description');
+const hoverCardMedia = document.querySelector('#hover-card-media');
+const lightbox = document.querySelector('#lightbox');
+
+function updateExplodeToggleUI(target) {
+  explodeToggleBtn.textContent = target ? 'Reassemble' : 'Exploded View';
+  explodeToggleBtn.classList.toggle('active', target);
+  explodeHint.classList.toggle('visible', target);
+}
+explodeToggleBtn.addEventListener('click', () => setExploded(!isExploded));
+
+function makeMediaEl(item) {
+  const el = document.createElement(item.type === 'video' ? 'video' : 'img');
+  el.src = item.src;
+  if (item.type === 'video') { el.muted = true; el.loop = true; el.playsInline = true; el.autoplay = true; }
+  else el.alt = item.label ?? '';
+  return el;
+}
+
+function openLightbox(item) {
+  lightbox.innerHTML = '';
+  const el = makeMediaEl(item);
+  if (el.tagName === 'VIDEO') el.controls = true;
+  lightbox.appendChild(el);
+  lightbox.classList.add('visible');
+}
+lightbox.addEventListener('click', () => {
+  lightbox.classList.remove('visible');
+  lightbox.innerHTML = '';
+});
+
+// Renders a media[] array into `container`: first item large/primary, the
+// rest as small clickable thumbnails that swap into the primary slot. Shared
+// by the hover card and the reference-section cards below.
+function renderMedia(container, media) {
+  container.innerHTML = '';
+  if (!media.length) return;
+
+  const primaryWrap = document.createElement('div');
+  primaryWrap.className = 'media-primary';
+  container.appendChild(primaryWrap);
+
+  let thumbsWrap = null;
+  if (media.length > 1) {
+    thumbsWrap = document.createElement('div');
+    thumbsWrap.className = 'media-thumbs';
+    media.forEach((item, i) => {
+      const thumb = makeMediaEl(item);
+      thumb.className = 'thumb';
+      thumb.addEventListener('click', () => setPrimary(i));
+      thumbsWrap.appendChild(thumb);
+    });
+    container.appendChild(thumbsWrap);
+  }
+
+  function setPrimary(index) {
+    primaryWrap.innerHTML = '';
+    const el = makeMediaEl(media[index]);
+    el.addEventListener('click', () => openLightbox(media[index]));
+    primaryWrap.appendChild(el);
+    thumbsWrap?.querySelectorAll('.thumb').forEach((t, i) => t.classList.toggle('active', i === index));
+  }
+  setPrimary(0);
+}
+
+let hoverCardGroup = null;
+function showHoverCard(group) {
+  if (group === hoverCardGroup) return;
+  hoverCardGroup = group;
+  const info = COMPONENT_INFO[group];
+  hoverCardTitle.textContent = info.title;
+  hoverCardDescription.textContent = info.description;
+  renderMedia(hoverCardMedia, info.media);
+  hoverCard.classList.add('visible');
+}
+function hideHoverCard() {
+  hoverCardGroup = null;
+  hoverCard.classList.remove('visible');
+}
+
+// Static reference section (Part 2) — one card per component, mirroring
+// COMPONENT_INFO so it never drifts out of sync with the hover cards above.
+const referenceGrid = document.querySelector('#reference-grid');
+for (const key of EXPLODE_GROUP_KEYS) {
+  const info = COMPONENT_INFO[key];
+  const card = document.createElement('div');
+  card.className = 'panel ref-card';
+
+  const first = info.media[0];
+  if (first) {
+    const media = makeMediaEl(first);
+    media.className = 'ref-media';
+    media.addEventListener('click', () => openLightbox(first));
+    card.appendChild(media);
+  } else {
+    const placeholder = document.createElement('div');
+    placeholder.className = 'ref-media-placeholder';
+    placeholder.textContent = 'Photo coming soon';
+    card.appendChild(placeholder);
+  }
+
+  const body = document.createElement('div');
+  body.className = 'ref-body';
+  const h3 = document.createElement('h3');
+  h3.textContent = info.title;
+  const p = document.createElement('p');
+  p.textContent = info.description;
+  body.append(h3, p);
+  card.appendChild(body);
+
+  referenceGrid.appendChild(card);
+}
 
 // Assets are in: turn the loading screen into a dimmed entry gate. Hover-
 // plucking can't unlock audio (pointermove isn't a "user gesture" under
