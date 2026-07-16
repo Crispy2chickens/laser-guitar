@@ -46,10 +46,11 @@ const CONFIG = {
   EXPLODE_STAGGER_MS: 80,      // delay between each component group's animation start
   EXPLODE_DURATION_MS: 1000,   // per-component explode/reassemble duration
   WIRE_HIDE_MS: 180,           // wire/beam fade-out on explode — quick, snappy
-  WIRE_REVEAL_MS: 450,         // wire fade-in on reassembly — gentler, so the
+  WIRE_REVEAL_MS: 900,         // wire fade-in on reassembly — slow, so the
                                // "everything is back" moment doesn't snap in abruptly
-  BEAM_REVEAL_MS: 150,         // beam fade-in on reassembly — shorter + eased (below)
-                               // so it reads as part of the landing, not a slow afterthought
+  BEAM_REVEAL_MS: 600,         // beam fade-in on reassembly — beam opacity eases
+                               // out (fast) while bloom strength eases in (slow),
+                               // so the glow builds gradually instead of popping
 
   // Bloom — threshold 1.0 so only genuinely HDR pixels bloom (beams at ~×8,
   // LED pulses at ×3). At 0.8 the idle LED strip and the acrylic's specular
@@ -168,6 +169,11 @@ const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
   CONFIG.BLOOM_STRENGTH, CONFIG.BLOOM_RADIUS, CONFIG.BLOOM_THRESHOLD,
 );
+// Default smoothWidth (0.01) makes the luminosity highpass nearly a hard
+// cutoff. Widen the knee so pixels near the threshold contribute partially
+// instead of flickering in and out at the gate. (The reassembly glow fade-in
+// is handled separately, by animating bloomPass.strength.)
+bloomPass.highPassUniforms['smoothWidth'].value = 0.5;
 composer.addPass(bloomPass);
 composer.addPass(new OutputPass()); // tone mapping + sRGB happen here
 
@@ -569,11 +575,20 @@ for (let i = 0; i < NUM_STRINGS; i++) {
 // Exploded view — animation + toggle
 // ---------------------------------------------------------------------------
 function easeOutCubic(t) { return 1 - (1 - t) ** 3; }
+function easeInCubic(t) { return t ** 3; }
 
 let isExploded = false;
 const meshAnimState = new Map(); // Object3D -> {fromPos, toPos, startTime, duration}
 let wireFade = null;             // {visible, startTime, duration} | null
 let beamFade = null;             // {startTime, duration} | null — fade-IN only; hide stays instant
+// UnrealBloomPass's luminosity highpass is a threshold *gate*, not a dimmer:
+// the moment a pixel's luma clears threshold + smoothWidth, the full HDR pixel
+// feeds the blur, so the glow jumps from nothing to full beam brightness at
+// the crossing instant no matter how the threshold moves. bloomPass.strength,
+// by contrast, scales the bloom output linearly — so the reveal animates
+// strength from 0 up to CONFIG.BLOOM_STRENGTH on the same eased timeline as
+// the beam's opacity, and the glow rises smoothly in step with the beam.
+let bloomStrengthFade = null;    // {startTime, duration} | null — fade-IN only
 let beamRestoreAt = -Infinity;   // timestamp beams become visible again after reassembly
 
 // Toggle entry point. Always reads each mesh's *current* live position as the
@@ -602,6 +617,10 @@ function setExploded(target) {
     // separate; hide immediately, alongside the wires fading out.
     wireFade = { visible: false, startTime: now, duration: CONFIG.WIRE_HIDE_MS };
     beamFade = null;
+    bloomStrengthFade = null;
+    // Kill bloom outright so no residual glow lingers over the abrupt hide;
+    // it fades back in with the beams on reassembly.
+    bloomPass.strength = 0;
     for (const entry of beams) {
       if (!entry) continue;
       entry.beam.visible = false;
@@ -617,8 +636,8 @@ function setExploded(target) {
     beamMaterial.opacity = 0;
     wireFade = { visible: true, startTime: now + reassembleTotalMs, duration: CONFIG.WIRE_REVEAL_MS };
     beamFade = { startTime: now + reassembleTotalMs, duration: CONFIG.BEAM_REVEAL_MS };
+    bloomStrengthFade = { startTime: now + reassembleTotalMs, duration: CONFIG.BEAM_REVEAL_MS };
     beamRestoreAt = now + reassembleTotalMs;
-    bodyFade = { from: bodyMesh ? bodyMesh.material.opacity : CONFIG.EXPLODED_BODY_OPACITY, to: 1, startTime: now + reassembleTotalMs, duration: CONFIG.WIRE_REVEAL_MS };
   }
 
   updateExplodeToggleUI(target);
@@ -791,8 +810,19 @@ function animate() {
   }
   if (beamFade && now >= beamFade.startTime) {
     const t = THREE.MathUtils.clamp((now - beamFade.startTime) / beamFade.duration, 0, 1);
+    // easeOut, not easeIn: the beam must clear the bloom threshold gate early
+    // in the reveal (while bloom strength is still ~0), so the glow's ramp is
+    // authored entirely by the strength fade below instead of popping on when
+    // a slow opacity crawl finally crosses the gate near the end.
     beamMaterial.opacity = easeOutCubic(t) * CONFIG.BEAM_OPACITY;
     if (t >= 1) beamFade = null;
+  }
+  if (bloomStrengthFade && now >= bloomStrengthFade.startTime) {
+    const t = THREE.MathUtils.clamp((now - bloomStrengthFade.startTime) / bloomStrengthFade.duration, 0, 1);
+    // Same easeInCubic curve as beamFade, so the glow's amplitude rises in
+    // lockstep with the beam's own brightness ramp.
+    bloomPass.strength = easeInCubic(t) * CONFIG.BLOOM_STRENGTH;
+    if (t >= 1) bloomStrengthFade = null;
   }
   if (!isExploded && beamRestoreAt <= now && beamRestoreAt !== -Infinity) {
     for (const entry of beams) if (entry) entry.beam.visible = true;
