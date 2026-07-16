@@ -9,18 +9,15 @@
     #app { position: fixed; inset: 0; }
     canvas { display: block; }
 
-    .panel {
-      position: fixed; z-index: 10;
+    /* Bare floating text — no box, so the corner stays clean. The soft text
+       shadow keeps it readable over the ambient background. */
+    #hud {
+      position: fixed; z-index: 10; top: 14px; left: 16px;
       font: 12px/1.5 -apple-system, "Helvetica Neue", sans-serif;
       color: #cfd3da;
-      background: rgba(14, 16, 20, 0.82);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 8px;
-      padding: 10px 12px;
-      backdrop-filter: blur(6px);
+      text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
       user-select: none;
     }
-    #hud { top: 12px; left: 12px; }
     #hud h1 { margin: 0 0 2px; font-size: 13px; font-weight: 600; color: #fff; }
     #hud .hint { color: #8b919c; }
 
@@ -53,9 +50,12 @@
 <body>
   <div id="app"></div>
 
-  <div id="hud" class="panel">
+  <div id="hud">
     <h1>Laser Guitar</h1>
-    <div class="hint">Click or drag across a beam to pluck &middot; drag empty space to orbit</div>
+    <div class="hint">
+      Touch a laser to block it and light up the neck &mdash; move off it to play the note.<br />
+      Drag empty space to orbit &middot; shift-drag to pan &middot; scroll to zoom
+    </div>
   </div>
 
   <div id="loading">Loading model + environment&hellip;</div>

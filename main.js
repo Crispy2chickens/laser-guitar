@@ -59,6 +59,25 @@ const CONFIG = {
   ACRYLIC_THICKNESS_MULT: 0.1,
   ACRYLIC_ATTENUATION_COLOR: new THREE.Color(0.93, 0.97, 1.0),
   ACRYLIC_ATTENUATION_DISTANCE_MULT: 3, // × measured slab depth (tint, not refraction)
+  // Three.js blurs transmission by sampling mips of a downscaled frame copy,
+  // so the authored roughness 0.05 reads as frosted/matte anywhere the view is
+  // dominated by transmission (i.e. the big front face, where Fresnel
+  // reflection is only ~4%). Force the slab optically clear.
+  ACRYLIC_ROUGHNESS: 0,
+
+  // Camera limits — pan is clamped to the model box expanded by this fraction
+  // of the model size, and dolly is capped so you can't zoom into oblivion.
+  PAN_MARGIN_FRAC: 0.35,
+  MIN_DISTANCE_FRAC: 0.2,
+  MAX_DISTANCE_FRAC: 4,
+
+  // Ambient background: the loaded HDRI, heavily blurred and dimmed, instead
+  // of flat black. Intensity stays far below BLOOM_THRESHOLD so it never hazes.
+  // BG_TINT is multiplied into the background copy only (not the lighting env)
+  // — cool it toward dark blue.
+  BG_BLURRINESS: 0.6,
+  BG_INTENSITY: 0.03,
+  BG_TINT: new THREE.Color(0.4, 0.55, 1.0),
 };
 
 // Start the audio pipeline (worklet fetch + compile, context + graph setup)
@@ -127,6 +146,28 @@ const [hdri, gltf] = await Promise.all([
 
 // Environment map — essential for the transmissive acrylic and metallic parts.
 scene.environment = pmrem.fromEquirectangular(hdri).texture;
+
+// Reuse the HDRI as a blurred, dimmed backdrop — a faint studio ambience that
+// matches what the acrylic reflects. The background wants a cool blue cast
+// that the lighting must NOT get, and three.js has no background tint knob,
+// so: after the lighting env is generated above, multiply BG_TINT into the
+// equirect pixels in place and PMREM it a second time for the background.
+{
+  const { data } = hdri.image;
+  const tint = [CONFIG.BG_TINT.r, CONFIG.BG_TINT.g, CONFIG.BG_TINT.b, 1];
+  const half = hdri.type === THREE.HalfFloatType;
+  for (let i = 0; i < data.length; i++) {
+    const t = tint[i & 3];
+    if (t === 1) continue;
+    data[i] = half
+      ? THREE.DataUtils.toHalfFloat(THREE.DataUtils.fromHalfFloat(data[i]) * t)
+      : data[i] * t;
+  }
+  hdri.needsUpdate = true;
+}
+scene.background = pmrem.fromEquirectangular(hdri).texture;
+scene.backgroundBlurriness = CONFIG.BG_BLURRINESS;
+scene.backgroundIntensity = CONFIG.BG_INTENSITY;
 hdri.dispose();
 pmrem.dispose();
 
@@ -141,6 +182,15 @@ const modelCenter = modelBox.getCenter(new THREE.Vector3());
 camera.position.copy(modelCenter).add(new THREE.Vector3(0.5, 0.6, 1).normalize().multiplyScalar(modelSize * 1.1));
 controls.target.copy(modelCenter);
 controls.update();
+
+// Shift/right-drag pan moves the orbit target, which unbounded lets you sail
+// off into empty space. Clamp the target to a margin around the guitar: the
+// pan simply runs out at the edge (a soft wall under damping), and orbiting
+// is untouched. Dolly limits stop zooming through the model or to infinity.
+const panBounds = modelBox.clone().expandByScalar(modelSize * CONFIG.PAN_MARGIN_FRAC);
+controls.addEventListener('change', () => panBounds.clampPoint(controls.target, controls.target));
+controls.minDistance = modelSize * CONFIG.MIN_DISTANCE_FRAC;
+controls.maxDistance = modelSize * CONFIG.MAX_DISTANCE_FRAC;
 
 // World-space bounding-box center of a mesh. NOTE: this model's loose-part
 // meshes (LEDs, diodes, LDRs) all share one object origin from Blender's
@@ -177,6 +227,7 @@ function fixMaterials() {
       // shows up as an offset ghost "duplicate" at glancing angles. Render
       // front faces only — one refraction through the volume.
       mat.side = THREE.FrontSide;
+      mat.roughness = CONFIG.ACRYLIC_ROUGHNESS; // see CONFIG — kills the frosted look
 
       if (mat.thickness === 0) {
         // Export dropped KHR_materials_volume, so the acrylic would render as a
