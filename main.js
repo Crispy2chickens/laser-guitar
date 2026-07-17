@@ -113,17 +113,43 @@ const EXPLODE_OFFSETS = {
 // placeholders — real copy + asset paths (see assets/, assets/process/) come
 // in once confirmed.
 const COMPONENT_INFO = {
-  led_strip: { title: 'LED Strip', description: 'PLACEHOLDER', media: [] },
-  perfboard: { title: 'Perfboard', description: 'PLACEHOLDER', media: [] },
-  mangopi_board: { title: 'MangoPi MQ-Pro', description: 'PLACEHOLDER', media: [] },
-  dac_board: { title: 'MAX98357A DAC', description: 'PLACEHOLDER', media: [] },
-  rotary_encoder: { title: 'Rotary Encoder', description: 'PLACEHOLDER', media: [] },
-  speaker: { title: 'Speaker', description: 'PLACEHOLDER', media: [] },
-  laser_diodes: { title: 'Laser Diodes', description: 'PLACEHOLDER', media: [] },
-  ldrs: { title: 'LDR Sensors', description: 'PLACEHOLDER', media: [] },
+  led_strip: { title: 'APA102 LED Strip', description: 'We chose the APA102 because it has separate clock and data pins, and because it was the strip we were most familiar with. We started with six separate strips — one per string — but my teammate wanted to drive them all from that single clock/data pair, so we soldered the strips together end-to-end so the controller sees them as one long continuous strip.', media: [
+    { type : 'img', src: 'assets/references/APA102.jpg', label: 'LEDs'},
+    { type : 'img', src: 'assets/process/soldering-leds.png', label: 'Soldering the LEDs'},
+  ] },
+  perfboard: { title: 'Perfboards', description: 'We used two boards to split the wiring. The Electrocookie board controls the laser diodes, the LEDs, the rotary encoder, and the DAC, while the green perfboard handles the six LDRs. My teammate mapped out every connection before we touched a soldering iron. Along the way I learned why each design decision was made, and eventually tried my hand at soldering and desoldering.', media: [
+    { type : 'img', src: 'assets/references/electrocookie.jpg', label: 'Electrocookie'},
+    { type : 'img', src: 'assets/references/perfboard.png', label: 'Perfboard'},
+    { type : 'img', src: 'assets/process/designing-board.png', label: 'Designing how the wires would be connected'},
+  ] },
+  mangopi_board: { title: 'MangoPi MQ-Pro', description: 'I had never heard of the MangoPi before CS107E, but the whole course is about programming this little RISC-V board bare-metal, no operating system, just our own code talking directly to the hardware, built up from the GPIO drivers. It\'s the powerhouse of the project, watching the six LDRs for broken beams, driving the LED strip, reading the rotary encoder, and streaming the guitar sound out through the DAC, all at once.', media: [
+    { type : 'img', src: 'assets/references/mango-pi.png', label: 'MangoPi MQ-Pro'},
+  ] },
+  dac_board: { title: 'MAX98357A DAC I2S Converter', description: 'We first tried PWM audio straight from a pin, but it sounded very "buzzy". After hearing a classmate\'s project that used I2S, we switched over. This chip is here since we chose to work with I2S. The MangoPi outputs sound as a digital I2S stream, and the MAX98357A turns that stream into an analog signal and amplifies it enough to drive the speaker directly. CS107E provided the I2S driver, so our code just had to keep feeding it samples.', media: [
+    { type : 'img', src: 'assets/references/dac.png', label: 'MAX98357A DAC'},
+  ] },
+  rotary_encoder: { title: 'EC11 Rotary Encoder', description: 'We wanted the audio to be customizable, so this rotary encoder lets players change the volume, and its built-in push switch resets it — my teammate worked out the logic for that. You can\'t adjust the volume through it in this demo, since the demo recreates the strings rather than the controls, but on the physical guitar a twist of the knob is all it takes.', media: [
+    { type : 'img', src: 'assets/references/rotary-encoder.png', label: 'Rotary Encoder'},
+  ] },
+  speaker: { title: '3W 8Ω Mini Speaker', description: 'We wanted our laser guitar to be somewhat realistic. The biggest challenge was learning how to represent a guitar wave and the harmonics that give it its character, and getting chords to work meant applying the double buffering we learned in the course plus some DSP I picked up outside of it. Play the video to hear the chords.', media: [
+    { type : 'img', src: 'assets/references/speaker.png', label: 'Speaker'},
+    { type: 'video', src: 'assets/process/audio.mp4', label: 'Chords' },
+  ] },
+  laser_diodes: { title: '5V Red Laser Diode Module', description: 'The diodes had to be 5V: we tried 3V ones first, but they weren\'t powerful enough to trigger the LDRs through the black-box holes at the ~40cm range we needed. Aiming six beams into six small holes was as fiddly as it sounds. We aligned them by slipping bits of paper under the black boxes, shimming each one up or down until its laser landed square on the sensor.', media: [
+    { type : 'img', src: 'assets/references/laser-diodes.png', label: 'Laser Diode Module'},
+  ] },
+  ldrs: { title: 'LDR Light Sensor Module', description: 'We chose this specific module because it has a comparator and a potentiometer on board. This allowed each sensor to output a clean digital on/off signal, with the potentiometer setting the light threshold, which is much easier to work with. Before we started, our professor warned us about a similar past project whose biggest challenge was getting the LDRs to respond to the lasers — and only the lasers — since they react to ambient room light too. The solution was to use little 3D-printed "black boxes" that enclose each module, with a single hole that lets the laser beam through to the sensor and blocks everything else. I designed and printed them, and it took 11 iterations of tuning the hole size and snout length, but the final boxes solved the ambient-light problem completely. (Click the last image to see the designs we went through!)', media: [
+    { type : 'img', src: 'assets/references/ldrs.png', label: 'LDR Sensor Module'},
+    { type : 'img', src: 'assets/process/ldrs-test.png', label: 'First time connecting all 6 LDRs to the speaker'},
+    { type : 'img', src: 'assets/process/black-boxes.png', label: 'Designs for black boxes we went through'},
+  ] },
   // Body is hoverable in the exploded view (it's the one thing that never
   // moves) but isn't part of EXPLODE_GROUP_KEYS below, since it has no offset.
-  body: { title: 'Guitar Body', description: 'PLACEHOLDER', media: [] },
+  body: { title: 'Clear Acrylic Guitar Body', description: 'We wanted a guitar shaped board that could fit all our components, so I designed the body from scratch in Adobe Illustrator and cut it from a single 1.8"-thick sheet, and everything fit on the first cut. The components are mounted with double-sided tape, and we chose clear acrylic because it suited the magical feel of a laser guitar — an instrument you can see straight through, played on beams of light.', media: [
+    { type : 'img', src: 'assets/process/lasercutted-board.png', label: 'Board was lasercutted'},
+    { type : 'img', src: 'assets/process/assembled-guitar.png', label: 'Assembled Guitar'},
+    { type: 'video', src: 'assets/process/final.mp4', label: 'Final working guitar' },
+  ] },
 };
 
 // Start the audio pipeline (worklet fetch + compile, context + graph setup)
@@ -716,25 +742,33 @@ function updateHover(hit) {
   }
 }
 
-// Hover-card raycast — only live while exploded, reusing the same
+// Component raycast — only live while exploded, reusing the same
 // raycaster/pointer as the beam pluck path above for consistency.
-function updateExplodeHover(event) {
+function pickExplodedComponent(event) {
   setPointerFromEvent(event);
   raycaster.setFromCamera(pointer, camera);
   const hit = raycaster.intersectObjects(hoverMeshes, false)[0];
-  const group = hit ? meshToGroup.get(hit.object) : null;
-  if (group) showHoverCard(group);
-  else hideHoverCard();
-  renderer.domElement.style.cursor = group ? 'pointer' : '';
+  return hit ? meshToGroup.get(hit.object) : null;
 }
 
 renderer.domElement.addEventListener('pointermove', (event) => {
-  if (isExploded) { updateExplodeHover(event); return; }
+  if (isExploded) {
+    // The info card is click-to-open (so it stays put while browsing its
+    // images); hover only signals clickability via the cursor.
+    renderer.domElement.style.cursor = pickExplodedComponent(event) ? 'pointer' : '';
+    return;
+  }
   updateHover(pickString(event));
 });
 renderer.domElement.addEventListener('pointerdown', (event) => {
   audioInit(); // AudioContext must start inside a user gesture
-  if (isExploded) return; // plucking is disabled while parts are separated
+  if (isExploded) {
+    // Click a component to pin its card; press on empty space to dismiss it.
+    const group = pickExplodedComponent(event);
+    if (group) showHoverCard(group);
+    else hideHoverCard();
+    return;
+  }
   updateHover(pickString(event)); // touch: finger down breaks the beam
 });
 renderer.domElement.addEventListener('pointerup', (event) => {
@@ -744,7 +778,9 @@ renderer.domElement.addEventListener('pointerup', (event) => {
   if (event.pointerType !== 'mouse') updateHover(null);
 });
 renderer.domElement.addEventListener('pointerleave', () => {
-  if (isExploded) { hideHoverCard(); renderer.domElement.style.cursor = ''; return; }
+  // While exploded the card is click-pinned, so leaving the canvas (e.g. to
+  // click the card's own thumbnails) must not dismiss it.
+  if (isExploded) { renderer.domElement.style.cursor = ''; return; }
   updateHover(null); // cursor left the canvas entirely
 });
 
@@ -897,20 +933,29 @@ function makeMediaEl(item) {
 function openLightbox(item) {
   lightbox.innerHTML = '';
   const el = makeMediaEl(item);
-  if (el.tagName === 'VIDEO') el.controls = true;
+  // Inline previews stay muted (autoplay policy), but the lightbox is opened
+  // by a click — a real user gesture — so its videos can play with sound.
+  if (el.tagName === 'VIDEO') { el.controls = true; el.muted = false; }
   lightbox.appendChild(el);
   lightbox.classList.add('visible');
 }
 lightbox.addEventListener('click', () => {
   lightbox.classList.remove('visible');
-  lightbox.innerHTML = '';
+  stopMedia(lightbox);
 });
 
 // Renders a media[] array into `container`: first item large/primary, the
 // rest as small clickable thumbnails that swap into the primary slot. Shared
 // by the hover card and the reference-section cards below.
-function renderMedia(container, media) {
+// Detached <video> elements can keep their audio running in some browsers,
+// so anything that discards media must pause it explicitly first.
+function stopMedia(container) {
+  container.querySelectorAll('video').forEach((v) => v.pause());
   container.innerHTML = '';
+}
+
+function renderMedia(container, media) {
+  stopMedia(container);
   if (!media.length) return;
 
   const primaryWrap = document.createElement('div');
@@ -931,8 +976,18 @@ function renderMedia(container, media) {
   }
 
   function setPrimary(index) {
-    primaryWrap.innerHTML = '';
+    stopMedia(primaryWrap);
     const el = makeMediaEl(media[index]);
+    if (el.tagName === 'VIDEO') {
+      // The card only ever renders from a click (pinning it or tapping a
+      // thumbnail), so that gesture lets the primary video play once through
+      // WITH sound. If the browser still refuses (strict autoplay settings),
+      // fall back to the standard muted loop rather than a frozen frame.
+      el.autoplay = false;
+      el.loop = false;
+      el.muted = false;
+      el.play().catch(() => { el.muted = true; el.loop = true; el.play(); });
+    }
     el.addEventListener('click', () => openLightbox(media[index]));
     primaryWrap.appendChild(el);
     thumbsWrap?.querySelectorAll('.thumb').forEach((t, i) => t.classList.toggle('active', i === index));
@@ -953,6 +1008,9 @@ function showHoverCard(group) {
 function hideHoverCard() {
   hoverCardGroup = null;
   hoverCard.classList.remove('visible');
+  // The card only fades to opacity 0 — it stays in the DOM, so any unmuted
+  // video would keep sounding after dismissal unless stopped here.
+  stopMedia(hoverCardMedia);
 }
 
 // Static reference section (Part 2) — one card per component, mirroring
