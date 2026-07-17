@@ -186,6 +186,14 @@ scene.background = new THREE.Color(0x08090c); // dark, so beams + bloom pop
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 100);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
+// On desktop, plucking is a hover — it never competes with drag-to-orbit.
+// On touch there's no hover, so plucking IS a one-finger drag, which by
+// default OrbitControls also uses for rotation: every attempt to play a
+// string also spins the camera. Free up one finger for playing and require
+// two fingers to look around/zoom (mouse behavior is a separate config and
+// is untouched).
+controls.touches.ONE = THREE.TOUCH.NONE;
+controls.touches.TWO = THREE.TOUCH.DOLLY_ROTATE;
 
 // EffectComposer defaults to a HalfFloat render target (r152+), which we rely
 // on: beam colors and active LED emissives are >1 so bloom can pick them out.
