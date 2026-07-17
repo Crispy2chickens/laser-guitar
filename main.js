@@ -113,7 +113,7 @@ const EXPLODE_OFFSETS = {
 // placeholders — real copy + asset paths (see assets/, assets/process/) come
 // in once confirmed.
 const COMPONENT_INFO = {
-  led_strip: { title: 'APA102 LED Strip', description: 'We chose the APA102 because it has separate clock and data pins, and because it was the strip we were most familiar with. We started with six separate strips — one per string — but my teammate wanted to drive them all from that single clock/data pair, so we soldered the strips together end-to-end so the controller sees them as one long continuous strip.', media: [
+  led_strip: { title: 'APA102 LED Strip', description: 'We chose the APA102 because it has separate clock and data pins. We started with six separate strips (one per string) but my teammate wanted to control them all from a single clock/data pair, so we soldered the strips together from one end to another so it\'s basically one long continuous strip.', media: [
     { type : 'img', src: 'assets/references/APA102.jpg', label: 'LEDs'},
     { type : 'img', src: 'assets/process/soldering-leds.png', label: 'Soldering the LEDs'},
   ] },
@@ -125,13 +125,13 @@ const COMPONENT_INFO = {
   mangopi_board: { title: 'MangoPi MQ-Pro', description: 'I had never heard of the MangoPi before CS107E, but the whole course is about programming this little RISC-V board bare-metal, no operating system, just our own code talking directly to the hardware, built up from the GPIO drivers. It\'s the powerhouse of the project, watching the six LDRs for broken beams, driving the LED strip, reading the rotary encoder, and streaming the guitar sound out through the DAC, all at once.', media: [
     { type : 'img', src: 'assets/references/mango-pi.png', label: 'MangoPi MQ-Pro'},
   ] },
-  dac_board: { title: 'MAX98357A DAC I2S Converter', description: 'We first tried PWM audio straight from a pin, but it sounded very "buzzy". After hearing a classmate\'s project that used I2S, we switched over. This chip is here since we chose to work with I2S. The MangoPi outputs sound as a digital I2S stream, and the MAX98357A turns that stream into an analog signal and amplifies it enough to drive the speaker directly. CS107E provided the I2S driver, so our code just had to keep feeding it samples.', media: [
+  dac_board: { title: 'MAX98357A DAC I2S Converter', description: 'I first tried PWM audio straight from a pin, but it sounded very "buzzy". After hearing a classmate\'s project that used I2S, we switched over. This chip is here since we chose to work with I2S. The MangoPi outputs sound as a digital I2S stream, and the MAX98357A turns that stream into an analog signal and amplifies it enough to drive the speaker directly. CS107E provided the I2S driver, so our code just had to keep feeding it samples.', media: [
     { type : 'img', src: 'assets/references/dac.png', label: 'MAX98357A DAC'},
   ] },
-  rotary_encoder: { title: 'EC11 Rotary Encoder', description: 'We wanted the audio to be customizable, so this rotary encoder lets players change the volume, and its built-in push switch resets it — my teammate worked out the logic for that. You can\'t adjust the volume through it in this demo, since the demo recreates the strings rather than the controls, but on the physical guitar a twist of the knob is all it takes.', media: [
+  rotary_encoder: { title: 'EC11 Rotary Encoder', description: 'We wanted the audio to be customizable, so this rotary encoder lets players change the volume, and my teammate worked out the logic for its built-in push switch to reset it. You can\'t adjust the volume through it in this demo, since the demo recreates the strings rather than the controls, but on the physical guitar a twist of the knob is all it takes.', media: [
     { type : 'img', src: 'assets/references/rotary-encoder.png', label: 'Rotary Encoder'},
   ] },
-  speaker: { title: '3W 8Ω Mini Speaker', description: 'We wanted our laser guitar to be somewhat realistic. The biggest challenge was learning how to represent a guitar wave and the harmonics that give it its character, and getting chords to work meant applying the double buffering we learned in the course plus some DSP I picked up outside of it. Play the video to hear the chords.', media: [
+  speaker: { title: '3W 8Ω Mini Speaker', description: 'We wanted our laser guitar to be somewhat realistic, so I took on figuring out how to represent a guitar wave and the harmonics that give it its character. Getting chords to work meant applying the double buffering we learned in the course plus some DSP I picked up outside of it. Play the video to hear the chords.', media: [
     { type : 'img', src: 'assets/references/speaker.png', label: 'Speaker'},
     { type: 'video', src: 'assets/process/audio.mp4', label: 'Chords' },
   ] },
