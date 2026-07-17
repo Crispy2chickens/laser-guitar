@@ -616,6 +616,10 @@ let beamFade = null;             // {startTime, duration} | null — fade-IN onl
 // the beam's opacity, and the glow rises smoothly in step with the beam.
 let bloomStrengthFade = null;    // {startTime, duration} | null — fade-IN only
 let beamRestoreAt = -Infinity;   // timestamp beams become visible again after reassembly
+// Gates pluck interaction separately from beam.visible: visible flips true at
+// the start of the reveal fade (still opacity 0), but the beam shouldn't be
+// grabbable until it's actually visible on screen, i.e. the fade has finished.
+let beamsInteractive = true;
 
 // Toggle entry point. Always reads each mesh's *current* live position as the
 // tween start, so re-toggling mid-animation is smooth rather than snapping —
@@ -644,6 +648,7 @@ function setExploded(target) {
     wireFade = { visible: false, startTime: now, duration: CONFIG.WIRE_HIDE_MS };
     beamFade = null;
     bloomStrengthFade = null;
+    beamsInteractive = false;
     // Kill bloom outright so no residual glow lingers over the abrupt hide;
     // it fades back in with the beams on reassembly.
     bloomPass.strength = 0;
@@ -694,6 +699,7 @@ function pickString(event) {
   setPointerFromEvent(event);
   raycaster.setFromCamera(pointer, camera);
   // Toggled-off beams don't exist as far as the pointer is concerned.
+  if (!beamsInteractive) return null;
   const hits = raycaster.intersectObjects(
     beams.filter((b) => b && b.userVisible).map((b) => b.hitbox), false);
   if (!hits.length) return null;
@@ -851,7 +857,7 @@ function animate() {
     // authored entirely by the strength fade below instead of popping on when
     // a slow opacity crawl finally crosses the gate near the end.
     beamMaterial.opacity = easeOutCubic(t) * CONFIG.BEAM_OPACITY;
-    if (t >= 1) beamFade = null;
+    if (t >= 1) { beamFade = null; beamsInteractive = true; }
   }
   if (bloomStrengthFade && now >= bloomStrengthFade.startTime) {
     const t = THREE.MathUtils.clamp((now - bloomStrengthFade.startTime) / bloomStrengthFade.duration, 0, 1);
