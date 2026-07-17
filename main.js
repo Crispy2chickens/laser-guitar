@@ -1051,7 +1051,7 @@ for (const key of EXPLODE_GROUP_KEYS) {
 // autoplay policy), so route everyone through one natural click — it starts
 // the sound and drops the gate before any beam can be reached.
 const gate = document.querySelector('#loading');
-gate.textContent = 'Click anywhere to begin';
+gate.textContent = 'Click anywhere to begin - then move your cursor across the lasers to play the guitar';
 gate.classList.add('ready');
 gate.addEventListener('pointerdown', () => {
   audioInit(); // this trusted click resumes the suspended AudioContext
